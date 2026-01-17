@@ -94,6 +94,12 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 CLAUDE_PATH=claude
 CLAUDE_MODEL=sonnet  # or opus, haiku
 
+# Optional: Anthropic API key (if set, CLI will use API-key auth)
+ANTHROPIC_API_KEY=
+
+# Optional: long-lived OAuth token created by `claude setup-token`
+CLAUDE_CODE_OAUTH_TOKEN=
+
 # Optional Claude OAuth (used by internal/oauth if needed)
 CLAUDE_ACCESS_TOKEN=
 CLAUDE_REFRESH_TOKEN=
@@ -116,6 +122,31 @@ ASYNQ_MAX_RETRY=10
 
 # Admin API (required for /api/* endpoints)
 ADMIN_API_KEY=change-me
+```
+
+### Using Claude Code OAuth (Subscription)
+
+1) Create a long-lived token with the CLI:
+```
+claude setup-token
+```
+Copy the token shown (valid for 1 year).
+
+2) Put it in your `.env`:
+```
+CLAUDE_CODE_OAUTH_TOKEN=...
+```
+
+3) Make sure `ANTHROPIC_API_KEY` is **not** set, otherwise the CLI will use the API key instead.
+
+4) Start the services:
+```
+docker-compose up --build
+```
+Or locally:
+```
+./techy-bot
+./techy-bot worker
 ```
 
 Copy your GitHub App private key:
@@ -180,6 +211,8 @@ TechyBot uses emoji reactions to show status:
 | `GITHUB_PRIVATE_KEY_PATH` | Path to private key | `/app/private-key.pem` |
 | `CLAUDE_PATH` | Path to Claude Code CLI | `claude` |
 | `CLAUDE_MODEL` | Claude model to use | `sonnet` |
+| `ANTHROPIC_API_KEY` | Anthropic API key (optional) | `` |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Long-lived Claude Code OAuth token (optional) | `` |
 | `CLAUDE_ACCESS_TOKEN` | Claude OAuth access token (optional) | `` |
 | `CLAUDE_REFRESH_TOKEN` | Claude OAuth refresh token (optional) | `` |
 | `CLAUDE_EXPIRES_AT` | Claude OAuth expiry (ms epoch) | `` |
@@ -311,6 +344,47 @@ TechyBot exposes a protected admin API for metrics and CRUD access to stored dat
 - `/api/webhook-events`
 - `/api/worker-metrics`
 - `/api/api-keys`
+
+## MCP (Optional)
+
+If you want Claude Code to use additional tools via MCP, drop a minimal `.mcp.json` in the repo root. This is optional (you already get GitHub access via your GitHub OAuth / webhook flow).
+
+Example `.mcp.json` (minimal, safe stack):
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/repo"]
+    },
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-git", "/path/to/your/repo"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    },
+    "memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "time": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-time"]
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    }
+  }
+}
+```
+
+Notes:
+- Replace `/path/to/your/repo` with the absolute path to this repo.
+- Keep the MCP list small to reduce risk surface.
 
 ## License
 

@@ -15,6 +15,8 @@ services:
       # Claude Code CLI Configuration
       - CLAUDE_PATH=${CLAUDE_PATH:-claude}
       - CLAUDE_MODEL=${CLAUDE_MODEL:-sonnet}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
 
       # Bot Configuration
       - BOT_USERNAME=${BOT_USERNAME:-techy}
@@ -83,6 +85,8 @@ services:
       # Claude Code CLI Configuration
       - CLAUDE_PATH=${CLAUDE_PATH:-claude}
       - CLAUDE_MODEL=${CLAUDE_MODEL:-sonnet}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
 
       # Bot Configuration
       - BOT_USERNAME=${BOT_USERNAME:-techy}

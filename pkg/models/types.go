@@ -175,6 +175,24 @@ type Config struct {
 	AsynqConcurrency int
 	AsynqMaxRetry    int
 
+	// Rate Limiting settings
+	RateLimitMaxTokens int // Maximum concurrent Claude CLI calls
+	RateLimitRefillSec int // Seconds between token refills
+
+	// Retry settings
+	RetryMaxAttempts  int // Maximum retry attempts for Claude API errors
+	RetryInitialDelay int // Initial delay in milliseconds
+	RetryMaxDelay     int // Maximum delay in milliseconds
+
+	// Cache settings
+	CacheEnabled bool // Enable prompt caching
+	CacheMaxSize int  // Maximum cache entries
+	CacheTTLMin  int  // Cache TTL in minutes
+
+	// Deduplication settings
+	DedupEnabled bool // Enable request deduplication
+	DedupTTLMin  int  // Deduplication TTL in minutes
+
 	// Admin API
 	AdminAPIKey string
 
