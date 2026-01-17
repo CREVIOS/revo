@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CREVIOS/revo/pkg/models"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 const (

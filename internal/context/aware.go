@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	gh "github.com/CREVIOS/revo/internal/github"
 	"github.com/google/go-github/v60/github"
 	"github.com/rs/zerolog/log"
-	gh "github.com/yourusername/techy-bot/internal/github"
 )
 
 // PRContextBuilder interface for building context prompts
@@ -35,9 +35,9 @@ type CommentInfo struct {
 
 // ReviewInfo represents a previous review
 type ReviewInfo struct {
-	Author  string
-	State   string // APPROVED, CHANGES_REQUESTED, COMMENTED
-	Body    string
+	Author   string
+	State    string // APPROVED, CHANGES_REQUESTED, COMMENTED
+	Body     string
 	BugCount int
 }
 

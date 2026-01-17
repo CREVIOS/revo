@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/CREVIOS/revo/pkg/models"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // Client wraps the Claude Code CLI for code reviews
@@ -52,10 +52,10 @@ func (c *Client) ReviewCode(ctx context.Context, request *models.ReviewRequest) 
 
 	// Prepare Claude Code CLI command
 	args := []string{
-		"-p", // Print mode (non-interactive)
+		"-p",                             // Print mode (non-interactive)
 		"--dangerously-skip-permissions", // Skip permission prompts
-		"--no-session-persistence", // Don't save session
-		"--output-format", "text", // Plain text output
+		"--no-session-persistence",       // Don't save session
+		"--output-format", "text",        // Plain text output
 	}
 
 	// Add model if specified

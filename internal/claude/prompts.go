@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/yourusername/techy-bot/pkg/models"
+import "github.com/CREVIOS/revo/pkg/models"
 
 // GetSystemPrompt returns the system prompt for the given review mode
 func GetSystemPrompt(mode models.ReviewMode) string {

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	gh "github.com/CREVIOS/revo/internal/github"
 	"github.com/rs/zerolog/log"
-	gh "github.com/yourusername/techy-bot/internal/github"
 )
 
 // ReviewJob represents a single review request
@@ -185,11 +185,11 @@ func (q *ReviewQueue) Stats() QueueStats {
 	defer q.mu.RUnlock()
 
 	return QueueStats{
-		QueueLength:  len(q.jobs),
-		ActiveJobs:   len(q.activeJobs),
-		Workers:      q.workers,
-		MaxQueueLen:  q.maxQueueLen,
-		Utilization:  float64(len(q.activeJobs)) / float64(q.workers) * 100,
+		QueueLength: len(q.jobs),
+		ActiveJobs:  len(q.activeJobs),
+		Workers:     q.workers,
+		MaxQueueLen: q.maxQueueLen,
+		Utilization: float64(len(q.activeJobs)) / float64(q.workers) * 100,
 	}
 }
 

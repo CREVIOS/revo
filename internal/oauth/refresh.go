@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yourusername/techy-bot/pkg/models"
+	"github.com/CREVIOS/revo/pkg/models"
 )
 
 // tokenRequest represents the OAuth token refresh request body

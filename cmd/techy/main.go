@@ -4,10 +4,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/CREVIOS/revo/internal/config"
+	"github.com/CREVIOS/revo/internal/server"
+	"github.com/CREVIOS/revo/internal/worker"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/internal/config"
-	"github.com/yourusername/techy-bot/internal/server"
 )
 
 func main() {
@@ -20,6 +21,14 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to load configuration")
+	}
+
+	if len(os.Args) > 1 && os.Args[1] == "worker" {
+		log.Info().Msg("Starting TechyBot worker...")
+		if err := worker.Run(cfg); err != nil {
+			log.Fatal().Err(err).Msg("Worker error")
+		}
+		return
 	}
 
 	// Create and start server

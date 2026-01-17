@@ -153,10 +153,30 @@ type Config struct {
 	// Claude Code CLI settings
 	ClaudePath string
 
+	// Claude OAuth (optional; used by internal/oauth)
+	ClaudeAccessToken     string
+	ClaudeRefreshToken    string
+	ClaudeExpiresAt       int64
+	ClaudeCredentialsFile string
+
 	// Bot settings
 	BotUsername string
 	ClaudeModel string
 	MaxDiffSize int
+
+	// Database settings
+	DatabaseURL string
+
+	// Redis / Asynq settings
+	RedisAddr        string
+	RedisPassword    string
+	RedisDB          int
+	AsynqQueue       string
+	AsynqConcurrency int
+	AsynqMaxRetry    int
+
+	// Admin API
+	AdminAPIKey string
 
 	// Server settings
 	Port string

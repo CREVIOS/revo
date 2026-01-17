@@ -11,13 +11,13 @@ import (
 
 // Limiter implements token bucket rate limiting for Claude Code CLI calls
 type Limiter struct {
-	tokens         int
-	maxTokens      int
-	refillRate     time.Duration
-	mu             sync.Mutex
-	lastRefill     time.Time
-	totalRequests  int64
-	totalWaitTime  time.Duration
+	tokens        int
+	maxTokens     int
+	refillRate    time.Duration
+	mu            sync.Mutex
+	lastRefill    time.Time
+	totalRequests int64
+	totalWaitTime time.Duration
 }
 
 // NewLimiter creates a new rate limiter

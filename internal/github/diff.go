@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/CREVIOS/revo/pkg/models"
 	"github.com/google/go-github/v60/github"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // ParseDiff parses a unified diff string into structured file changes

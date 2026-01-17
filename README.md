@@ -94,8 +94,28 @@ GITHUB_WEBHOOK_SECRET=your-webhook-secret
 CLAUDE_PATH=claude
 CLAUDE_MODEL=sonnet  # or opus, haiku
 
+# Optional Claude OAuth (used by internal/oauth if needed)
+CLAUDE_ACCESS_TOKEN=
+CLAUDE_REFRESH_TOKEN=
+CLAUDE_EXPIRES_AT=
+CLAUDE_CREDENTIALS_FILE=
+
 # Bot settings
 BOT_USERNAME=techy
+
+# Database
+DATABASE_URL=postgres://techy:techy_pass@localhost:5432/techybot?sslmode=disable
+
+# Redis / Asynq
+REDIS_ADDR=localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+ASYNQ_QUEUE=reviews
+ASYNQ_CONCURRENCY=3
+ASYNQ_MAX_RETRY=10
+
+# Admin API (required for /api/* endpoints)
+ADMIN_API_KEY=change-me
 ```
 
 Copy your GitHub App private key:
@@ -160,10 +180,22 @@ TechyBot uses emoji reactions to show status:
 | `GITHUB_PRIVATE_KEY_PATH` | Path to private key | `/app/private-key.pem` |
 | `CLAUDE_PATH` | Path to Claude Code CLI | `claude` |
 | `CLAUDE_MODEL` | Claude model to use | `sonnet` |
+| `CLAUDE_ACCESS_TOKEN` | Claude OAuth access token (optional) | `` |
+| `CLAUDE_REFRESH_TOKEN` | Claude OAuth refresh token (optional) | `` |
+| `CLAUDE_EXPIRES_AT` | Claude OAuth expiry (ms epoch) | `` |
+| `CLAUDE_CREDENTIALS_FILE` | OAuth credentials file path | `` |
 | `BOT_USERNAME` | Bot trigger username | `techy` |
 | `MAX_DIFF_SIZE` | Max diff size in bytes | `100000` |
 | `PORT` | Server port | `8080` |
 | `LOG_LEVEL` | Logging level | `info` |
+| `DATABASE_URL` | Postgres connection string | Required |
+| `ADMIN_API_KEY` | Admin API key for /api endpoints | Required |
+| `REDIS_ADDR` | Redis address for Asynq | `localhost:6379` |
+| `REDIS_PASSWORD` | Redis password | Optional |
+| `REDIS_DB` | Redis DB number | `0` |
+| `ASYNQ_QUEUE` | Asynq queue name | `reviews` |
+| `ASYNQ_CONCURRENCY` | Worker concurrency | `3` |
+| `ASYNQ_MAX_RETRY` | Max task retries | `10` |
 
 ## Development
 
@@ -188,6 +220,12 @@ export $(cat .env | xargs)
 
 # Run
 ./techy-bot
+```
+
+Run the background worker in a separate terminal:
+
+```bash
+./techy-bot worker
 ```
 
 ### Project Structure
@@ -258,6 +296,21 @@ TechyBot uses your existing Claude Code subscription:
 | TechyBot (Claude Free) | Free tier usage limits |
 
 *Subject to Claude's usage limits and rate limiting
+
+## Admin API
+
+TechyBot exposes a protected admin API for metrics and CRUD access to stored data.
+
+**Auth:** Send `X-Admin-API-Key: <key>` or `Authorization: Bearer <key>`.
+
+**Endpoints:**
+- `GET /api/metrics`
+- `/api/reviews`
+- `/api/review-comments`
+- `/api/repositories`
+- `/api/webhook-events`
+- `/api/worker-metrics`
+- `/api/api-keys`
 
 ## License
 
