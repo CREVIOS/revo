@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/CREVIOS/revo/pkg/models"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // WebhookHandler processes GitHub webhook events
@@ -31,6 +31,7 @@ type WebhookEvent struct {
 	Comment     *Comment
 	Sender      *User
 	Command     *models.Command
+	ReviewID    uint
 }
 
 // Repository represents GitHub repository data

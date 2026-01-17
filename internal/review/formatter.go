@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yourusername/techy-bot/pkg/models"
+	"github.com/CREVIOS/revo/pkg/models"
 )
 
 // FormatReview formats Claude's review response for GitHub

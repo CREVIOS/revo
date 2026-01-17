@@ -2,21 +2,24 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/CREVIOS/revo/internal/claude"
+	contextaware "github.com/CREVIOS/revo/internal/context"
+	"github.com/CREVIOS/revo/internal/database"
+	gh "github.com/CREVIOS/revo/internal/github"
+	"github.com/CREVIOS/revo/internal/ratelimit"
+	"github.com/CREVIOS/revo/internal/review"
+	"github.com/CREVIOS/revo/internal/tasks"
+	"github.com/CREVIOS/revo/pkg/models"
 	"github.com/gorilla/mux"
+	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/internal/claude"
-	contextaware "github.com/yourusername/techy-bot/internal/context"
-	gh "github.com/yourusername/techy-bot/internal/github"
-	"github.com/yourusername/techy-bot/internal/queue"
-	"github.com/yourusername/techy-bot/internal/ratelimit"
-	"github.com/yourusername/techy-bot/internal/review"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // Server represents the TechyBot HTTP server
@@ -28,9 +31,12 @@ type Server struct {
 	claudeClient    *claude.Client
 	reviewer        *review.Reviewer
 	webhookHandler  *gh.WebhookHandler
-	reviewQueue     *queue.ReviewQueue
 	rateLimiter     *ratelimit.Limiter
 	contextAnalyzer *contextaware.ContextAwareAnalyzer
+	store           *database.Store
+	asynqClient     *asynq.Client
+	asynqInspector  *asynq.Inspector
+	asynqQueue      string
 }
 
 // New creates a new Server instance
@@ -39,6 +45,22 @@ func New(cfg *models.Config) (*Server, error) {
 		config: cfg,
 		router: mux.NewRouter(),
 	}
+
+	// Initialize database connection and store
+	db, err := database.Connect(cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	s.store = database.NewStore(db)
+
+	redisOpt := asynq.RedisClientOpt{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	}
+	s.asynqClient = asynq.NewClient(redisOpt)
+	s.asynqInspector = asynq.NewInspector(redisOpt)
+	s.asynqQueue = cfg.AsynqQueue
 
 	// Initialize GitHub client
 	s.githubClient = gh.NewClient(cfg.GitHubAppID, cfg.GitHubPrivateKey)
@@ -56,9 +78,7 @@ func New(cfg *models.Config) (*Server, error) {
 	s.reviewer = review.NewReviewer(s.githubClient, s.claudeClient, cfg.MaxDiffSize)
 	s.reviewer.SetContextAnalyzer(s.contextAnalyzer)
 	s.reviewer.SetRateLimiter(s.rateLimiter)
-
-	// Initialize review queue (3 workers, max 50 queued)
-	s.reviewQueue = queue.NewReviewQueue(3, 50, s.reviewer)
+	s.reviewer.SetStore(s.store)
 
 	// Initialize webhook handler
 	s.webhookHandler = gh.NewWebhookHandler(
@@ -84,13 +104,145 @@ func New(cfg *models.Config) (*Server, error) {
 
 // handleCommand processes a parsed command from a webhook event
 func (s *Server) handleCommand(event *gh.WebhookEvent) error {
-	// Enqueue the review instead of processing directly
-	// This allows concurrent reviews and cancels stale ones
-	if err := s.reviewQueue.Enqueue(event); err != nil {
-		log.Error().Err(err).Msg("Failed to enqueue review")
+	owner := event.Repository.Owner.Login
+	repo := event.Repository.Name
+	prNumber := event.PullRequest.Number
+	commitSHA := ""
+	senderLogin := ""
+	if event.Sender != nil {
+		senderLogin = event.Sender.Login
+	}
+
+	if s.store != nil {
+		if event.PullRequest != nil && event.PullRequest.Head != nil {
+			commitSHA = event.PullRequest.Head.SHA
+		}
+		if commitSHA == "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			pr, err := s.githubClient.GetPullRequest(ctx, owner, repo, prNumber)
+			cancel()
+			if err == nil && pr.GetHead() != nil {
+				commitSHA = pr.GetHead().GetSHA()
+			}
+		}
+
+		_ = s.store.UpsertRepository(&database.Repository{
+			Owner:     owner,
+			Name:      repo,
+			FullName:  event.Repository.FullName,
+			IsPrivate: event.Repository.Private,
+			IsActive:  true,
+		})
+
+		reviewRecord := &database.Review{
+			Owner:       owner,
+			Repo:        repo,
+			PRNumber:    prNumber,
+			Mode:        string(event.Command.Mode),
+			Status:      "queued",
+			QueuedAt:    time.Now(),
+			RequestedBy: event.Sender.Login,
+		}
+		if event.PullRequest != nil {
+			reviewRecord.PRTitle = event.PullRequest.Title
+			reviewRecord.CommitSHA = commitSHA
+		}
+
+		if err := s.store.CreateReview(reviewRecord); err != nil {
+			log.Warn().Err(err).Msg("Failed to create review record")
+		} else {
+			event.ReviewID = reviewRecord.ID
+			_ = s.store.CreateWebhookEvent(&database.WebhookEvent{
+				EventType:   event.EventType,
+				Owner:       owner,
+				Repo:        repo,
+				PRNumber:    prNumber,
+				Action:      event.Action,
+				ProcessedAt: ptrTime(time.Now()),
+				ReviewID:    &reviewRecord.ID,
+			})
+		}
+	}
+
+	payload := tasks.ReviewPayload{
+		EventType:   event.EventType,
+		Action:      event.Action,
+		Owner:       owner,
+		Repo:        repo,
+		PRNumber:    prNumber,
+		CommentID:   event.Comment.ID,
+		CommentBody: event.Comment.Body,
+		SenderLogin: senderLogin,
+		Mode:        string(event.Command.Mode),
+		Verbose:     event.Command.Verbose,
+		CommitSHA:   commitSHA,
+		ReviewID:    event.ReviewID,
+	}
+
+	task, err := tasks.NewReviewTask(payload)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to build review task")
 		return err
 	}
+
+	taskID := fmt.Sprintf("review:%s/%s/%d", owner, repo, prNumber)
+	if commitSHA != "" {
+		taskID = fmt.Sprintf("%s:%s", taskID, commitSHA)
+	}
+
+	_, err = s.asynqClient.Enqueue(
+		task,
+		asynq.Queue(s.asynqQueue),
+		asynq.MaxRetry(s.config.AsynqMaxRetry),
+		asynq.TaskID(taskID),
+	)
+	if err != nil {
+		if err == asynq.ErrDuplicateTask || err == asynq.ErrTaskIDConflict {
+			log.Info().Err(err).Msg("Duplicate review task ignored")
+			if s.store != nil && event.ReviewID > 0 {
+				completedAt := time.Now()
+				_ = s.store.UpdateReview(event.ReviewID, map[string]interface{}{
+					"status":        "cancelled",
+					"error_message": "duplicate task",
+					"completed_at":  completedAt,
+					"duration_ms":   int64(0),
+				})
+			}
+			return nil
+		}
+
+		log.Error().Err(err).Msg("Failed to enqueue review task")
+		if s.store != nil && event.ReviewID > 0 {
+			completedAt := time.Now()
+			_ = s.store.UpdateReview(event.ReviewID, map[string]interface{}{
+				"status":        "failed",
+				"error_message": err.Error(),
+				"completed_at":  completedAt,
+				"duration_ms":   int64(0),
+			})
+		}
+		return err
+	}
+
 	return nil
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
+}
+
+func (s *Server) queueInfo() interface{} {
+	if s.asynqInspector == nil {
+		return nil
+	}
+
+	info, err := s.asynqInspector.GetQueueInfo(s.asynqQueue)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to fetch queue info")
+		return nil
+	}
+
+	return info
 }
 
 // Start begins listening for HTTP requests
@@ -111,18 +263,20 @@ func (s *Server) Start() error {
 		if err := s.httpServer.Shutdown(ctx); err != nil {
 			log.Error().Err(err).Msg("Could not gracefully shutdown server")
 		}
+		if s.asynqClient != nil {
+			if err := s.asynqClient.Close(); err != nil {
+				log.Warn().Err(err).Msg("Failed to close Redis client")
+			}
+		}
 		close(done)
 	}()
-
-	// Start the review queue workers
-	s.reviewQueue.Start(context.Background())
 
 	log.Info().
 		Str("port", s.config.Port).
 		Str("bot_username", s.config.BotUsername).
 		Str("model", s.config.ClaudeModel).
-		Int("queue_workers", 3).
-		Msg("TechyBot server starting with queue system")
+		Str("queue", s.asynqQueue).
+		Msg("TechyBot server starting with Redis queue")
 
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
