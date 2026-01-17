@@ -34,6 +34,7 @@ type ReviewRequest struct {
 	PRTitle     string
 	PRBody      string
 	Files       []PRFile
+	PRContext   interface{ BuildContextPrompt() string } // For context-aware reviews
 }
 
 // PRFile represents a file changed in a pull request

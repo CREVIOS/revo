@@ -7,15 +7,29 @@ import (
 	"github.com/google/go-github/v60/github"
 	"github.com/rs/zerolog/log"
 	"github.com/yourusername/techy-bot/internal/claude"
+	contextaware "github.com/yourusername/techy-bot/internal/context"
 	gh "github.com/yourusername/techy-bot/internal/github"
 	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // Reviewer handles code review requests
 type Reviewer struct {
-	githubClient *gh.Client
-	claudeClient *claude.Client
-	maxDiffSize  int
+	githubClient    *gh.Client
+	claudeClient    *claude.Client
+	maxDiffSize     int
+	contextAnalyzer ContextAnalyzer
+	rateLimiter     RateLimiter
+}
+
+// ContextAnalyzer interface for gathering PR context
+type ContextAnalyzer interface {
+	GatherContext(ctx context.Context, owner, repo string, prNumber int) (contextaware.PRContextBuilder, error)
+}
+
+// RateLimiter interface for rate limiting
+type RateLimiter interface {
+	Wait(ctx context.Context) error
+	Release()
 }
 
 // NewReviewer creates a new code reviewer
@@ -25,6 +39,16 @@ func NewReviewer(githubClient *gh.Client, claudeClient *claude.Client, maxDiffSi
 		claudeClient: claudeClient,
 		maxDiffSize:  maxDiffSize,
 	}
+}
+
+// SetContextAnalyzer sets the context analyzer for smarter reviews
+func (r *Reviewer) SetContextAnalyzer(analyzer ContextAnalyzer) {
+	r.contextAnalyzer = analyzer
+}
+
+// SetRateLimiter sets the rate limiter
+func (r *Reviewer) SetRateLimiter(limiter RateLimiter) {
+	r.rateLimiter = limiter
 }
 
 // ProcessReview handles a complete review request from webhook to GitHub comment
@@ -72,6 +96,15 @@ func (r *Reviewer) ProcessReview(ctx context.Context, event *gh.WebhookEvent) er
 	}
 	files := gh.ConvertGitHubFiles(ghFiles)
 
+	// Gather context (existing comments, reviews) for smarter analysis
+	var prContext contextaware.PRContextBuilder
+	if r.contextAnalyzer != nil {
+		prContext, err = r.contextAnalyzer.GatherContext(ctx, owner, repo, prNumber)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to gather PR context, continuing without it")
+		}
+	}
+
 	// Build review request
 	request := &models.ReviewRequest{
 		Owner:       owner,
@@ -84,6 +117,16 @@ func (r *Reviewer) ProcessReview(ctx context.Context, event *gh.WebhookEvent) er
 		PRTitle:     pr.GetTitle(),
 		PRBody:      pr.GetBody(),
 		Files:       files,
+		PRContext:   prContext,
+	}
+
+	// Apply rate limiting before calling Claude Code CLI
+	if r.rateLimiter != nil {
+		log.Debug().Msg("Waiting for rate limiter")
+		if err := r.rateLimiter.Wait(ctx); err != nil {
+			return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, "Rate limit wait cancelled", err)
+		}
+		defer r.rateLimiter.Release()
 	}
 
 	// Get review from Claude
