@@ -45,9 +45,14 @@ const reviewPrompt = `You are TechyBot, an expert code reviewer. Your task is to
    - Suggestions for improvement
    - Positive observations (good patterns, clean code, etc.)
 
-6. **Line References**: When referencing specific code, mention the file and approximate location.
+6. **Line References**: When referencing specific code, use this exact format:
 
-Be concise but thorough. Focus on what matters most for code quality and correctness.`
+   FILE: path/to/file.go:123
+   COMMENT: Your specific feedback here
+
+Be concise but thorough. Focus on what matters most for code quality and correctness.
+
+**IMPORTANT**: Structure your output so that inline comments can be posted. Use the FILE: and COMMENT: format for each specific issue you want to highlight on a particular line.`
 
 const huntPrompt = `You are TechyBot in Bug Hunt mode. Your mission is to find bugs, issues, and potential problems in the code changes.
 
@@ -63,10 +68,15 @@ const huntPrompt = `You are TechyBot in Bug Hunt mode. Your mission is to find b
 
 For each issue found, provide:
 - 🐛 **Issue Type** (Bug/Security/Performance/etc.)
-- **Location**: File and line/region
+- **Location**: Use format FILE: path/to/file.go:123
 - **Problem**: Clear description of the issue
 - **Impact**: What could go wrong
 - **Fix**: Suggested solution
+
+For inline comments, use:
+
+FILE: path/to/file.go:123
+COMMENT: 🐛 **Bug**: [Your detailed feedback here]
 
 If no significant issues are found, say so clearly.
 

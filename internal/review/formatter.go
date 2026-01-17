@@ -98,16 +98,29 @@ func SplitIntoComments(review string) []models.ReviewComment {
 // parseFileReference attempts to extract file and line number from text
 func parseFileReference(text string) (file string, line int, found bool) {
 	// Common patterns:
+	// - "FILE: path/to/file.go:123"
 	// - "In `file.go:123`"
 	// - "file.go line 123"
 	// - "file.go:123"
 
+	// First check for FILE: prefix (preferred format)
+	if strings.HasPrefix(strings.TrimSpace(text), "FILE:") {
+		ref := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "FILE:"))
+		if colonIdx := strings.LastIndex(ref, ":"); colonIdx != -1 {
+			file = ref[:colonIdx]
+			var lineNum int
+			if _, err := fmt.Sscanf(ref[colonIdx+1:], "%d", &lineNum); err == nil {
+				return file, lineNum, true
+			}
+		}
+	}
+
 	// Simple regex-free parsing for common patterns
-	text = strings.ToLower(text)
+	textLower := strings.ToLower(text)
 
 	// Look for backtick-wrapped references
-	if idx := strings.Index(text, "`"); idx != -1 {
-		end := strings.Index(text[idx+1:], "`")
+	if idx := strings.Index(textLower, "`"); idx != -1 {
+		end := strings.Index(textLower[idx+1:], "`")
 		if end != -1 {
 			ref := text[idx+1 : idx+1+end]
 			if colonIdx := strings.LastIndex(ref, ":"); colonIdx != -1 {
@@ -121,6 +134,73 @@ func parseFileReference(text string) (file string, line int, found bool) {
 	}
 
 	return "", 0, false
+}
+
+// ParseStructuredReview parses Claude's output for FILE: and COMMENT: markers
+func ParseStructuredReview(review string) (summary string, comments []models.ReviewComment) {
+	lines := strings.Split(review, "\n")
+	var summaryBuilder strings.Builder
+	var currentFile string
+	var currentLine int
+	var currentComment strings.Builder
+	inComment := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Check for FILE: marker
+		if strings.HasPrefix(trimmed, "FILE:") {
+			// Save previous comment if any
+			if currentFile != "" && currentComment.Len() > 0 {
+				comments = append(comments, models.ReviewComment{
+					Path: currentFile,
+					Line: currentLine,
+					Body: strings.TrimSpace(currentComment.String()),
+				})
+				currentComment.Reset()
+			}
+
+			// Parse new file reference
+			if file, lineNum, found := parseFileReference(trimmed); found {
+				currentFile = file
+				currentLine = lineNum
+				inComment = false
+			}
+			continue
+		}
+
+		// Check for COMMENT: marker
+		if strings.HasPrefix(trimmed, "COMMENT:") {
+			inComment = true
+			commentText := strings.TrimSpace(strings.TrimPrefix(trimmed, "COMMENT:"))
+			if commentText != "" {
+				currentComment.WriteString(commentText)
+				currentComment.WriteString("\n")
+			}
+			continue
+		}
+
+		// Accumulate comment or summary
+		if inComment && currentFile != "" {
+			currentComment.WriteString(line)
+			currentComment.WriteString("\n")
+		} else if !inComment {
+			summaryBuilder.WriteString(line)
+			summaryBuilder.WriteString("\n")
+		}
+	}
+
+	// Don't forget the last comment
+	if currentFile != "" && currentComment.Len() > 0 {
+		comments = append(comments, models.ReviewComment{
+			Path: currentFile,
+			Line: currentLine,
+			Body: strings.TrimSpace(currentComment.String()),
+		})
+	}
+
+	summary = strings.TrimSpace(summaryBuilder.String())
+	return
 }
 
 // TruncateForGitHub truncates content to fit GitHub's comment size limit

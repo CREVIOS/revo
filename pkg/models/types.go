@@ -1,6 +1,8 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // ReviewMode represents the type of code review to perform
 type ReviewMode string
@@ -36,12 +38,12 @@ type ReviewRequest struct {
 
 // PRFile represents a file changed in a pull request
 type PRFile struct {
-	Filename    string
-	Status      string // added, removed, modified, renamed
-	Additions   int
-	Deletions   int
-	Changes     int
-	Patch       string
+	Filename     string
+	Status       string // added, removed, modified, renamed
+	Additions    int
+	Deletions    int
+	Changes      int
+	Patch        string
 	PreviousName string // for renamed files
 }
 
@@ -63,10 +65,10 @@ type ReviewComment struct {
 
 // OAuthCredentials holds the Claude OAuth tokens
 type OAuthCredentials struct {
-	AccessToken  string    `json:"accessToken"`
-	RefreshToken string    `json:"refreshToken"`
-	ExpiresAt    int64     `json:"expiresAt"`
-	TokenType    string    `json:"tokenType,omitempty"`
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
+	ExpiresAt    int64  `json:"expiresAt"`
+	TokenType    string `json:"tokenType,omitempty"`
 }
 
 // TokenResponse is the response from the OAuth token refresh endpoint
@@ -106,15 +108,15 @@ type Repository struct {
 
 // PullRequest represents a GitHub pull request
 type PullRequest struct {
-	Number    int
-	Title     string
-	Body      string
-	State     string
-	Head      Branch
-	Base      Branch
-	User      User
-	HTMLURL   string
-	DiffURL   string
+	Number  int
+	Title   string
+	Body    string
+	State   string
+	Head    Branch
+	Base    Branch
+	User    User
+	HTMLURL string
+	DiffURL string
 }
 
 // Branch represents a git branch
@@ -147,11 +149,8 @@ type Config struct {
 	GitHubPrivateKey    []byte
 	GitHubWebhookSecret string
 
-	// Claude OAuth settings
-	ClaudeAccessToken  string
-	ClaudeRefreshToken string
-	ClaudeExpiresAt    int64
-	ClaudeCredentialsFile string
+	// Claude Code CLI settings
+	ClaudePath string
 
 	// Bot settings
 	BotUsername string

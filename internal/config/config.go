@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -46,77 +45,10 @@ func Load() (*models.Config, error) {
 		return nil, fmt.Errorf("GITHUB_WEBHOOK_SECRET is required")
 	}
 
-	// Load Claude OAuth credentials
-	if err := loadClaudeCredentials(cfg); err != nil {
-		return nil, fmt.Errorf("failed to load Claude credentials: %w", err)
-	}
+	// Load Claude Code CLI path
+	cfg.ClaudePath = getEnvOrDefault("CLAUDE_PATH", "claude")
 
 	return cfg, nil
-}
-
-// loadClaudeCredentials loads Claude OAuth tokens from env vars or credentials file
-func loadClaudeCredentials(cfg *models.Config) error {
-	// First, try loading from environment variables
-	cfg.ClaudeAccessToken = os.Getenv("CLAUDE_ACCESS_TOKEN")
-	cfg.ClaudeRefreshToken = os.Getenv("CLAUDE_REFRESH_TOKEN")
-
-	if expiresAt := os.Getenv("CLAUDE_EXPIRES_AT"); expiresAt != "" {
-		exp, err := strconv.ParseInt(expiresAt, 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid CLAUDE_EXPIRES_AT: %w", err)
-		}
-		cfg.ClaudeExpiresAt = exp
-	}
-
-	// If env vars are set, we're done
-	if cfg.ClaudeAccessToken != "" && cfg.ClaudeRefreshToken != "" {
-		log.Info().Msg("Loaded Claude credentials from environment variables")
-		return nil
-	}
-
-	// Try loading from credentials file
-	credFile := getEnvOrDefault("CLAUDE_CREDENTIALS_FILE", "")
-	if credFile == "" {
-		// Try default Claude credentials location
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			credFile = homeDir + "/.claude/.credentials.json"
-		}
-	}
-
-	if credFile != "" {
-		if creds, err := loadCredentialsFile(credFile); err == nil {
-			cfg.ClaudeAccessToken = creds.AccessToken
-			cfg.ClaudeRefreshToken = creds.RefreshToken
-			cfg.ClaudeExpiresAt = creds.ExpiresAt
-			cfg.ClaudeCredentialsFile = credFile
-			log.Info().Str("file", credFile).Msg("Loaded Claude credentials from file")
-			return nil
-		} else {
-			log.Debug().Err(err).Str("file", credFile).Msg("Could not load credentials file")
-		}
-	}
-
-	if cfg.ClaudeAccessToken == "" {
-		return fmt.Errorf("Claude credentials not found. Set CLAUDE_ACCESS_TOKEN and CLAUDE_REFRESH_TOKEN environment variables, or provide CLAUDE_CREDENTIALS_FILE")
-	}
-
-	return nil
-}
-
-// loadCredentialsFile reads and parses a Claude credentials JSON file
-func loadCredentialsFile(path string) (*models.OAuthCredentials, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var creds models.OAuthCredentials
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, err
-	}
-
-	return &creds, nil
 }
 
 // getEnvOrDefault returns the environment variable value or a default
