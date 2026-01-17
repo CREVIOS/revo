@@ -1,6 +1,6 @@
 # TechyBot
 
-A self-hosted GitHub code review bot powered by Claude AI. TechyBot provides intelligent code reviews directly in your pull requests, similar to Cursor's BugBot.
+A self-hosted GitHub code review bot powered by Claude Code CLI. TechyBot provides intelligent code reviews directly in your pull requests, similar to Cursor's BugBot.
 
 ## Features
 
@@ -11,7 +11,7 @@ A self-hosted GitHub code review bot powered by Claude AI. TechyBot provides int
   - `@techy performance` - Performance optimization suggestions
   - `@techy analyze` - Deep technical analysis
 
-- **Uses Your Claude Subscription**: Leverages your existing Claude Max/Pro subscription via OAuth
+- **Uses Claude Code CLI**: Leverages your existing Claude Code installation and authentication
 - **Self-Hosted**: Full control over your data and deployment
 - **Docker Ready**: Easy deployment with Docker and docker-compose
 
@@ -62,18 +62,20 @@ A self-hosted GitHub code review bot powered by Claude AI. TechyBot provides int
 5. Generate and download a private key
 6. Note your App ID
 
-### 2. Get Claude OAuth Credentials
+### 2. Install and Authenticate Claude Code CLI
 
-TechyBot uses your Claude Max/Pro subscription. Get your credentials from:
+TechyBot uses the Claude Code CLI for reviews. You need to have it installed and authenticated:
 
-```bash
-cat ~/.claude/.credentials.json
-```
+1. **Install Claude Code CLI** (if not already installed):
+   ```bash
+   npm install -g @anthropic-ai/claude-code
+   ```
 
-This file contains:
-- `accessToken`
-- `refreshToken`
-- `expiresAt`
+2. **Authenticate with Claude**:
+   ```bash
+   claude
+   ```
+   This will prompt you to authenticate with your Claude account (Free, Pro, or Max subscription).
 
 ### 3. Configure Environment
 
@@ -88,10 +90,9 @@ Edit `.env` with your values:
 GITHUB_APP_ID=123456
 GITHUB_WEBHOOK_SECRET=your-webhook-secret
 
-# Claude OAuth
-CLAUDE_ACCESS_TOKEN=sk-ant-oat01-...
-CLAUDE_REFRESH_TOKEN=sk-ant-ort01-...
-CLAUDE_EXPIRES_AT=1748658860401
+# Claude Code CLI (uses 'claude' from PATH by default)
+CLAUDE_PATH=claude
+CLAUDE_MODEL=sonnet  # or opus, haiku
 
 # Bot settings
 BOT_USERNAME=techy
@@ -102,6 +103,8 @@ Copy your GitHub App private key:
 ```bash
 cp /path/to/your-app.private-key.pem ./github-private-key.pem
 ```
+
+**Important**: The bot will use your Claude Code CLI authentication from `~/.claude/`. Make sure you've authenticated before running the bot.
 
 ### 4. Run with Docker
 
@@ -155,11 +158,9 @@ TechyBot uses emoji reactions to show status:
 | `GITHUB_APP_ID` | Your GitHub App ID | Required |
 | `GITHUB_WEBHOOK_SECRET` | Webhook secret | Required |
 | `GITHUB_PRIVATE_KEY_PATH` | Path to private key | `/app/private-key.pem` |
-| `CLAUDE_ACCESS_TOKEN` | OAuth access token | Required |
-| `CLAUDE_REFRESH_TOKEN` | OAuth refresh token | Required |
-| `CLAUDE_EXPIRES_AT` | Token expiration (ms) | Required |
+| `CLAUDE_PATH` | Path to Claude Code CLI | `claude` |
+| `CLAUDE_MODEL` | Claude model to use | `sonnet` |
 | `BOT_USERNAME` | Bot trigger username | `techy` |
-| `CLAUDE_MODEL` | Claude model to use | `claude-sonnet-4-20250514` |
 | `MAX_DIFF_SIZE` | Max diff size in bytes | `100000` |
 | `PORT` | Server port | `8080` |
 | `LOG_LEVEL` | Logging level | `info` |
@@ -169,6 +170,8 @@ TechyBot uses emoji reactions to show status:
 ### Prerequisites
 
 - Go 1.23+
+- Node.js 18+ and npm (for Claude Code CLI)
+- Claude Code CLI authenticated with your Claude account
 - Docker (optional)
 
 ### Building
@@ -245,15 +248,16 @@ Check that your Claude subscription is active and the refresh token is valid.
 
 ## Cost
 
-TechyBot uses your existing Claude subscription:
+TechyBot uses your existing Claude Code subscription:
 
 | Solution | Cost |
 |----------|------|
 | Cursor BugBot | $40/user for 200 reviews |
 | TechyBot (Claude Max) | Part of $100/month (unlimited*) |
-| TechyBot (Claude Pro) | Part of $20/month |
+| TechyBot (Claude Pro) | Part of $20/month (subject to limits) |
+| TechyBot (Claude Free) | Free tier usage limits |
 
-*Subject to rate limits
+*Subject to Claude's usage limits and rate limiting
 
 ## License
 

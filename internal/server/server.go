@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/yourusername/techy-bot/internal/claude"
 	gh "github.com/yourusername/techy-bot/internal/github"
-	"github.com/yourusername/techy-bot/internal/oauth"
 	"github.com/yourusername/techy-bot/internal/review"
 	"github.com/yourusername/techy-bot/pkg/models"
 )
@@ -22,7 +21,6 @@ type Server struct {
 	config         *models.Config
 	router         *mux.Router
 	httpServer     *http.Server
-	oauthManager   *oauth.Manager
 	githubClient   *gh.Client
 	claudeClient   *claude.Client
 	reviewer       *review.Reviewer
@@ -36,18 +34,11 @@ func New(cfg *models.Config) (*Server, error) {
 		router: mux.NewRouter(),
 	}
 
-	// Initialize OAuth manager
-	oauthMgr, err := oauth.NewManager(cfg)
-	if err != nil {
-		return nil, err
-	}
-	s.oauthManager = oauthMgr
-
 	// Initialize GitHub client
 	s.githubClient = gh.NewClient(cfg.GitHubAppID, cfg.GitHubPrivateKey)
 
-	// Initialize Claude client
-	s.claudeClient = claude.NewClient(s.oauthManager, cfg.ClaudeModel)
+	// Initialize Claude Code CLI client
+	s.claudeClient = claude.NewClient(cfg.ClaudePath, cfg.ClaudeModel)
 
 	// Initialize reviewer
 	s.reviewer = review.NewReviewer(s.githubClient, s.claudeClient, cfg.MaxDiffSize)

@@ -10,7 +10,6 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/go-github/v60/github"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // Client wraps the GitHub API client with app authentication
@@ -184,6 +183,63 @@ func (c *Client) AddReaction(ctx context.Context, owner, repo string, commentID 
 	if err != nil {
 		return fmt.Errorf("failed to add reaction: %w", err)
 	}
+
+	return nil
+}
+
+// CreateReviewComment creates an inline comment on a specific line in a PR
+func (c *Client) CreateReviewComment(ctx context.Context, owner, repo string, prNumber int, commitID, path, body string, line int) error {
+	client, err := c.GetInstallationClient(ctx, owner, repo)
+	if err != nil {
+		return err
+	}
+
+	comment := &github.PullRequestComment{
+		Body:     github.String(body),
+		CommitID: github.String(commitID),
+		Path:     github.String(path),
+		Line:     github.Int(line),
+	}
+
+	_, _, err = client.PullRequests.CreateComment(ctx, owner, repo, prNumber, comment)
+	if err != nil {
+		return fmt.Errorf("failed to create review comment: %w", err)
+	}
+
+	log.Info().
+		Str("repo", fmt.Sprintf("%s/%s", owner, repo)).
+		Int("pr", prNumber).
+		Str("file", path).
+		Int("line", line).
+		Msg("Posted inline review comment")
+
+	return nil
+}
+
+// CreateReview creates a pull request review with multiple inline comments
+func (c *Client) CreateReview(ctx context.Context, owner, repo string, prNumber int, commitID, body string, comments []*github.DraftReviewComment) error {
+	client, err := c.GetInstallationClient(ctx, owner, repo)
+	if err != nil {
+		return err
+	}
+
+	review := &github.PullRequestReviewRequest{
+		CommitID: github.String(commitID),
+		Body:     github.String(body),
+		Event:    github.String("COMMENT"),
+		Comments: comments,
+	}
+
+	_, _, err = client.PullRequests.CreateReview(ctx, owner, repo, prNumber, review)
+	if err != nil {
+		return fmt.Errorf("failed to create review: %w", err)
+	}
+
+	log.Info().
+		Str("repo", fmt.Sprintf("%s/%s", owner, repo)).
+		Int("pr", prNumber).
+		Int("comments", len(comments)).
+		Msg("Posted review with inline comments")
 
 	return nil
 }

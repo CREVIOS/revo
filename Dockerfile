@@ -19,18 +19,23 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o techy-bot ./cmd/techy
 
 # Runtime stage
-FROM alpine:latest
+FROM node:22-alpine
 
-# Install ca-certificates for HTTPS and git for potential future use
-RUN apk --no-cache add ca-certificates git tzdata
+# Install ca-certificates for HTTPS, git, and other dependencies
+RUN apk --no-cache add ca-certificates git tzdata curl
 
 WORKDIR /app
 
 # Copy the binary from builder
 COPY --from=builder /app/techy-bot .
 
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
 # Create non-root user
-RUN adduser -D -g '' techybot
+RUN adduser -D -g '' techybot && \
+    chown -R techybot:techybot /app
+
 USER techybot
 
 # Expose port

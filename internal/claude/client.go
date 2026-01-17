@@ -1,83 +1,87 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/rs/zerolog/log"
-	"github.com/yourusername/techy-bot/internal/oauth"
 	"github.com/yourusername/techy-bot/pkg/models"
 )
 
-// Client wraps the Anthropic SDK with OAuth token injection
+// Client wraps the Claude Code CLI for code reviews
 type Client struct {
-	oauthManager *oauth.Manager
-	model        string
+	claudePath string
+	model      string
 }
 
-// NewClient creates a new Claude API client
-func NewClient(oauthManager *oauth.Manager, model string) *Client {
+// NewClient creates a new Claude Code CLI client
+func NewClient(claudePath string, model string) *Client {
+	if claudePath == "" {
+		claudePath = "claude" // Use PATH
+	}
 	return &Client{
-		oauthManager: oauthManager,
-		model:        model,
+		claudePath: claudePath,
+		model:      model,
 	}
 }
 
-// ReviewCode performs a code review using Claude
+// ReviewCode performs a code review using Claude Code CLI
 func (c *Client) ReviewCode(ctx context.Context, request *models.ReviewRequest) (string, error) {
-	// Get current access token
-	token, err := c.oauthManager.GetAccessToken()
-	if err != nil {
-		return "", fmt.Errorf("failed to get access token: %w", err)
-	}
-
-	// Create client with current token
-	client := anthropic.NewClient(
-		option.WithAPIKey(token),
-	)
-
 	// Get the appropriate system prompt for the review mode
 	systemPrompt := GetSystemPrompt(request.Command.Mode)
 
 	// Build the user message with PR context
 	userMessage := buildUserMessage(request)
 
+	// Combine system prompt and user message
+	fullPrompt := fmt.Sprintf("%s\n\n%s", systemPrompt, userMessage)
+
 	log.Debug().
 		Str("mode", string(request.Command.Mode)).
 		Int("diff_size", len(request.Diff)).
-		Msg("Sending review request to Claude")
+		Msg("Sending review request to Claude Code CLI")
 
-	// Make the API call
-	message, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     anthropic.F(anthropic.Model(c.model)),
-		MaxTokens: anthropic.F(int64(4096)),
-		System: anthropic.F([]anthropic.TextBlockParam{
-			anthropic.NewTextBlock(systemPrompt),
-		}),
-		Messages: anthropic.F([]anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(userMessage)),
-		}),
-	})
-	if err != nil {
-		return "", fmt.Errorf("Claude API error: %w", err)
+	// Prepare Claude Code CLI command
+	args := []string{
+		"-p", // Print mode (non-interactive)
+		"--dangerously-skip-permissions", // Skip permission prompts
+		"--no-session-persistence", // Don't save session
+		"--output-format", "text", // Plain text output
 	}
 
-	// Extract text response
-	var response strings.Builder
-	for _, block := range message.Content {
-		if block.Type == anthropic.ContentBlockTypeText {
-			response.WriteString(block.Text)
-		}
+	// Add model if specified
+	if c.model != "" {
+		args = append(args, "--model", c.model)
 	}
+
+	// Add the prompt as the last argument
+	args = append(args, fullPrompt)
+
+	// Execute Claude Code CLI
+	cmd := exec.CommandContext(ctx, c.claudePath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	log.Debug().
-		Int("response_length", response.Len()).
-		Msg("Received review response from Claude")
+		Str("command", c.claudePath).
+		Strs("args", args[:len(args)-1]). // Don't log the full prompt
+		Msg("Executing Claude Code CLI")
 
-	return response.String(), nil
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("Claude Code CLI error: %w, stderr: %s", err, stderr.String())
+	}
+
+	response := strings.TrimSpace(stdout.String())
+
+	log.Debug().
+		Int("response_length", len(response)).
+		Msg("Received review response from Claude Code CLI")
+
+	return response, nil
 }
 
 // buildUserMessage constructs the user message with PR context

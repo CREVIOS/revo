@@ -12,14 +12,12 @@ services:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem
 
-      # Claude OAuth Configuration
-      - CLAUDE_ACCESS_TOKEN=${CLAUDE_ACCESS_TOKEN}
-      - CLAUDE_REFRESH_TOKEN=${CLAUDE_REFRESH_TOKEN}
-      - CLAUDE_EXPIRES_AT=${CLAUDE_EXPIRES_AT}
+      # Claude Code CLI Configuration
+      - CLAUDE_PATH=${CLAUDE_PATH:-claude}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-sonnet}
 
       # Bot Configuration
       - BOT_USERNAME=${BOT_USERNAME:-techy}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
       - MAX_DIFF_SIZE=${MAX_DIFF_SIZE:-100000}
 
       # Logging
@@ -30,8 +28,9 @@ services:
       # Mount GitHub App private key
       - ./github-private-key.pem:/app/private-key.pem:ro
 
-      # Optional: Mount Claude credentials file instead of using env vars
-      # - ~/.claude/.credentials.json:/app/.credentials.json:ro
+      # Mount Claude Code CLI directories for authentication
+      - ~/.claude:/home/techybot/.claude:ro
+      - ~/.config:/home/techybot/.config:ro
 
     restart: unless-stopped
 

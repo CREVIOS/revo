@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/go-github/v60/github"
 	"github.com/rs/zerolog/log"
 	"github.com/yourusername/techy-bot/internal/claude"
 	gh "github.com/yourusername/techy-bot/internal/github"
@@ -91,10 +92,46 @@ func (r *Reviewer) ProcessReview(ctx context.Context, event *gh.WebhookEvent) er
 		return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, "Failed to get review from Claude", err)
 	}
 
-	// Format and post the review
-	formattedReview := FormatReview(review, event.Command.Mode)
-	if err := r.githubClient.CreateComment(ctx, owner, repo, prNumber, formattedReview); err != nil {
-		return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, "Failed to post review", err)
+	// Parse review for inline comments
+	summary, inlineComments := ParseStructuredReview(review)
+
+	// Post inline comments if any were found
+	if len(inlineComments) > 0 {
+		// Get HEAD commit SHA for the PR
+		headSHA := pr.GetHead().GetSHA()
+
+		// Create GitHub draft review comments
+		draftComments := make([]*github.DraftReviewComment, 0, len(inlineComments))
+		for _, comment := range inlineComments {
+			draftComments = append(draftComments, &github.DraftReviewComment{
+				Path: github.String(comment.Path),
+				Line: github.Int(comment.Line),
+				Body: github.String(comment.Body),
+			})
+		}
+
+		// Create a review with all inline comments
+		reviewBody := fmt.Sprintf("## %s TechyBot %s\n\n%s\n\n---\n<sub>🤖 Powered by Claude Code CLI | Triggered by `@%s %s`</sub>",
+			GetModeEmoji(event.Command.Mode),
+			GetModeDescription(event.Command.Mode),
+			summary,
+			"techy",
+			string(event.Command.Mode))
+
+		if err := r.githubClient.CreateReview(ctx, owner, repo, prNumber, headSHA, reviewBody, draftComments); err != nil {
+			log.Warn().Err(err).Msg("Failed to post review with inline comments, falling back to regular comment")
+			// Fallback to regular comment if review posting fails
+			formattedReview := FormatReview(review, event.Command.Mode)
+			if err := r.githubClient.CreateComment(ctx, owner, repo, prNumber, formattedReview); err != nil {
+				return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, "Failed to post review", err)
+			}
+		}
+	} else {
+		// No inline comments found, post as regular comment
+		formattedReview := FormatReview(review, event.Command.Mode)
+		if err := r.githubClient.CreateComment(ctx, owner, repo, prNumber, formattedReview); err != nil {
+			return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, "Failed to post review", err)
+		}
 	}
 
 	// Add checkmark reaction to indicate success

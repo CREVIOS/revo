@@ -26,17 +26,15 @@ func (s *Server) setupRoutes() {
 // healthHandler returns the health status of the server
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	status := struct {
-		Status      string    `json:"status"`
-		Bot         string    `json:"bot"`
-		Model       string    `json:"model"`
-		TokenExpiry time.Time `json:"token_expiry"`
-		Time        time.Time `json:"time"`
+		Status string    `json:"status"`
+		Bot    string    `json:"bot"`
+		Model  string    `json:"model"`
+		Time   time.Time `json:"time"`
 	}{
-		Status:      "healthy",
-		Bot:         s.config.BotUsername,
-		Model:       s.config.ClaudeModel,
-		TokenExpiry: s.oauthManager.GetExpiresAt(),
-		Time:        time.Now(),
+		Status: "healthy",
+		Bot:    s.config.BotUsername,
+		Model:  s.config.ClaudeModel,
+		Time:   time.Now(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
