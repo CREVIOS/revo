@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  techy-bot:
+    build: .
+    container_name: techy-bot
+    ports:
+      - "8080:8080"
+    environment:
+      # GitHub App Configuration
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
+      - GITHUB_PRIVATE_KEY_PATH=/app/private-key.pem
+
+      # Claude OAuth Configuration
+      - CLAUDE_ACCESS_TOKEN=${CLAUDE_ACCESS_TOKEN}
+      - CLAUDE_REFRESH_TOKEN=${CLAUDE_REFRESH_TOKEN}
+      - CLAUDE_EXPIRES_AT=${CLAUDE_EXPIRES_AT}
+
+      # Bot Configuration
+      - BOT_USERNAME=${BOT_USERNAME:-techy}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-20250514}
+      - MAX_DIFF_SIZE=${MAX_DIFF_SIZE:-100000}
+
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_FORMAT=${LOG_FORMAT:-console}
+
+    volumes:
+      # Mount GitHub App private key
+      - ./github-private-key.pem:/app/private-key.pem:ro
+
+      # Optional: Mount Claude credentials file instead of using env vars
+      # - ~/.claude/.credentials.json:/app/.credentials.json:ro
+
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+# For production, you might want to add:
+# - A reverse proxy (nginx/traefik) for TLS termination
+# - Log aggregation
+# - Monitoring with Prometheus
