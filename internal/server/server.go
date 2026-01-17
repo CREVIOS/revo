@@ -11,20 +11,26 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 	"github.com/yourusername/techy-bot/internal/claude"
+	contextaware "github.com/yourusername/techy-bot/internal/context"
 	gh "github.com/yourusername/techy-bot/internal/github"
+	"github.com/yourusername/techy-bot/internal/queue"
+	"github.com/yourusername/techy-bot/internal/ratelimit"
 	"github.com/yourusername/techy-bot/internal/review"
 	"github.com/yourusername/techy-bot/pkg/models"
 )
 
 // Server represents the TechyBot HTTP server
 type Server struct {
-	config         *models.Config
-	router         *mux.Router
-	httpServer     *http.Server
-	githubClient   *gh.Client
-	claudeClient   *claude.Client
-	reviewer       *review.Reviewer
-	webhookHandler *gh.WebhookHandler
+	config          *models.Config
+	router          *mux.Router
+	httpServer      *http.Server
+	githubClient    *gh.Client
+	claudeClient    *claude.Client
+	reviewer        *review.Reviewer
+	webhookHandler  *gh.WebhookHandler
+	reviewQueue     *queue.ReviewQueue
+	rateLimiter     *ratelimit.Limiter
+	contextAnalyzer *contextaware.ContextAwareAnalyzer
 }
 
 // New creates a new Server instance
@@ -40,8 +46,19 @@ func New(cfg *models.Config) (*Server, error) {
 	// Initialize Claude Code CLI client
 	s.claudeClient = claude.NewClient(cfg.ClaudePath, cfg.ClaudeModel)
 
-	// Initialize reviewer
+	// Initialize context analyzer for smarter reviews
+	s.contextAnalyzer = contextaware.NewContextAwareAnalyzer(s.githubClient, cfg.BotUsername)
+
+	// Initialize rate limiter (2 concurrent reviews, 1 token every 30 seconds)
+	s.rateLimiter = ratelimit.NewLimiter(2, 30*time.Second)
+
+	// Initialize reviewer with enhanced features
 	s.reviewer = review.NewReviewer(s.githubClient, s.claudeClient, cfg.MaxDiffSize)
+	s.reviewer.SetContextAnalyzer(s.contextAnalyzer)
+	s.reviewer.SetRateLimiter(s.rateLimiter)
+
+	// Initialize review queue (3 workers, max 50 queued)
+	s.reviewQueue = queue.NewReviewQueue(3, 50, s.reviewer)
 
 	// Initialize webhook handler
 	s.webhookHandler = gh.NewWebhookHandler(
@@ -67,8 +84,13 @@ func New(cfg *models.Config) (*Server, error) {
 
 // handleCommand processes a parsed command from a webhook event
 func (s *Server) handleCommand(event *gh.WebhookEvent) error {
-	ctx := context.Background()
-	return s.reviewer.ProcessReview(ctx, event)
+	// Enqueue the review instead of processing directly
+	// This allows concurrent reviews and cancels stale ones
+	if err := s.reviewQueue.Enqueue(event); err != nil {
+		log.Error().Err(err).Msg("Failed to enqueue review")
+		return err
+	}
+	return nil
 }
 
 // Start begins listening for HTTP requests
@@ -92,11 +114,15 @@ func (s *Server) Start() error {
 		close(done)
 	}()
 
+	// Start the review queue workers
+	s.reviewQueue.Start(context.Background())
+
 	log.Info().
 		Str("port", s.config.Port).
 		Str("bot_username", s.config.BotUsername).
 		Str("model", s.config.ClaudeModel).
-		Msg("TechyBot server starting")
+		Int("queue_workers", 3).
+		Msg("TechyBot server starting with queue system")
 
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err

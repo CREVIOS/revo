@@ -19,6 +19,9 @@ func (s *Server) setupRoutes() {
 	// Info endpoint
 	s.router.HandleFunc("/", s.infoHandler).Methods(http.MethodGet)
 
+	// Stats endpoint - queue and rate limiter stats
+	s.router.HandleFunc("/stats", s.statsHandler).Methods(http.MethodGet)
+
 	// Middleware for logging
 	s.router.Use(loggingMiddleware)
 }
@@ -48,15 +51,24 @@ func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 		Description string   `json:"description"`
 		Commands    []string `json:"commands"`
 		Repository  string   `json:"repository"`
+		Features    []string `json:"features"`
 	}{
 		Name:        "TechyBot",
-		Description: "AI-powered code review bot using Claude",
+		Description: "AI-powered code review bot using Claude Code CLI (like Cursor's BugBot)",
 		Commands: []string{
+			"@techy hunt - Quick bug detection (BugBot mode)",
 			"@techy review - Standard code review",
-			"@techy hunt - Quick bug detection",
 			"@techy security - Security-focused analysis",
 			"@techy performance - Performance optimization",
 			"@techy analyze - Deep technical analysis",
+		},
+		Features: []string{
+			"Inline comments with line numbers",
+			"Queue system for concurrent reviews",
+			"Context-aware (reads existing PR comments)",
+			"Rate limiting to prevent overload",
+			"Low false positive rate",
+			"Cancels stale reviews on new commits",
 		},
 		Repository: "https://github.com/yourusername/techy-bot",
 	}
@@ -64,6 +76,27 @@ func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(info)
 }
+
+// statsHandler returns current queue and rate limiter statistics
+func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
+	queueStats := s.reviewQueue.Stats()
+	rateLimiterStats := s.rateLimiter.Stats()
+
+	stats := struct {
+		Queue       interface{} `json:"queue"`
+		RateLimiter interface{} `json:"rate_limiter"`
+		Uptime      string      `json:"uptime"`
+	}{
+		Queue:       queueStats,
+		RateLimiter: rateLimiterStats,
+		Uptime:      time.Since(startTime).String(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+var startTime = time.Now()
 
 // loggingMiddleware logs all incoming requests
 func loggingMiddleware(next http.Handler) http.Handler {

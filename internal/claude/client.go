@@ -36,8 +36,14 @@ func (c *Client) ReviewCode(ctx context.Context, request *models.ReviewRequest) 
 	// Build the user message with PR context
 	userMessage := buildUserMessage(request)
 
-	// Combine system prompt and user message
-	fullPrompt := fmt.Sprintf("%s\n\n%s", systemPrompt, userMessage)
+	// Add context if provided (to avoid duplicates)
+	contextPrompt := ""
+	if request.PRContext != nil {
+		contextPrompt = request.PRContext.BuildContextPrompt()
+	}
+
+	// Combine system prompt, context, and user message
+	fullPrompt := fmt.Sprintf("%s%s\n\n%s", systemPrompt, contextPrompt, userMessage)
 
 	log.Debug().
 		Str("mode", string(request.Command.Mode)).
