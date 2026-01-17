@@ -109,11 +109,6 @@ func (r *Reviewer) ProcessReview(ctx context.Context, event *gh.WebhookEvent) er
 		return r.postError(ctx, owner, repo, prNumber, event.Comment.ID, message, err)
 	}
 
-	// Add eyes reaction to indicate we're processing
-	if err := r.githubClient.AddReaction(ctx, owner, repo, event.Comment.ID, "eyes"); err != nil {
-		log.Warn().Err(err).Msg("Failed to add eyes reaction")
-	}
-
 	// Fetch PR details
 	pr, err := r.githubClient.GetPullRequest(ctx, owner, repo, prNumber)
 	if err != nil {

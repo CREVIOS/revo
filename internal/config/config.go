@@ -63,8 +63,26 @@ func Load() (*models.Config, error) {
 	cfg.RedisPassword = os.Getenv("REDIS_PASSWORD")
 	cfg.RedisDB = getEnvIntOrDefault("REDIS_DB", 0)
 	cfg.AsynqQueue = getEnvOrDefault("ASYNQ_QUEUE", "reviews")
-	cfg.AsynqConcurrency = getEnvIntOrDefault("ASYNQ_CONCURRENCY", 3)
+	cfg.AsynqConcurrency = getEnvIntOrDefault("ASYNQ_CONCURRENCY", 10)  // Increased from 3 for scalability
 	cfg.AsynqMaxRetry = getEnvIntOrDefault("ASYNQ_MAX_RETRY", 10)
+
+	// Rate limiting configuration (production-ready defaults)
+	cfg.RateLimitMaxTokens = getEnvIntOrDefault("RATE_LIMIT_MAX_TOKENS", 10)   // 10 concurrent Claude calls
+	cfg.RateLimitRefillSec = getEnvIntOrDefault("RATE_LIMIT_REFILL_SEC", 10)   // Refill every 10 seconds
+
+	// Retry configuration (exponential backoff with jitter)
+	cfg.RetryMaxAttempts = getEnvIntOrDefault("RETRY_MAX_ATTEMPTS", 5)         // 5 retry attempts
+	cfg.RetryInitialDelay = getEnvIntOrDefault("RETRY_INITIAL_DELAY_MS", 1000) // 1 second initial delay
+	cfg.RetryMaxDelay = getEnvIntOrDefault("RETRY_MAX_DELAY_MS", 60000)        // 60 second max delay
+
+	// Cache configuration
+	cfg.CacheEnabled = getEnvBoolOrDefault("CACHE_ENABLED", true)              // Enable caching by default
+	cfg.CacheMaxSize = getEnvIntOrDefault("CACHE_MAX_SIZE", 1000)              // 1000 entries
+	cfg.CacheTTLMin = getEnvIntOrDefault("CACHE_TTL_MIN", 30)                  // 30 minute TTL
+
+	// Deduplication configuration
+	cfg.DedupEnabled = getEnvBoolOrDefault("DEDUP_ENABLED", true)              // Enable dedup by default
+	cfg.DedupTTLMin = getEnvIntOrDefault("DEDUP_TTL_MIN", 5)                   // 5 minute dedup window
 
 	// Load admin API key
 	cfg.AdminAPIKey = os.Getenv("ADMIN_API_KEY")
@@ -73,6 +91,14 @@ func Load() (*models.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// getEnvBoolOrDefault returns the environment variable as bool or a default
+func getEnvBoolOrDefault(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		return value == "true" || value == "1" || value == "yes"
+	}
+	return defaultValue
 }
 
 // getEnvOrDefault returns the environment variable value or a default

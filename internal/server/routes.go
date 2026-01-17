@@ -10,8 +10,11 @@ import (
 
 // setupRoutes configures all HTTP routes
 func (s *Server) setupRoutes() {
-	// Health check endpoint
-	s.router.HandleFunc("/health", s.healthHandler).Methods(http.MethodGet)
+	// Health check endpoints (Kubernetes-compatible)
+	s.router.HandleFunc("/health", s.healthHandler).Methods(http.MethodGet)      // Liveness probe
+	s.router.HandleFunc("/healthz", s.healthHandler).Methods(http.MethodGet)     // Kubernetes liveness
+	s.router.HandleFunc("/ready", s.readinessHandler).Methods(http.MethodGet)    // Readiness probe
+	s.router.HandleFunc("/readyz", s.readinessHandler).Methods(http.MethodGet)   // Kubernetes readiness
 
 	// GitHub webhook endpoint
 	s.router.HandleFunc("/webhook", s.webhookHandler.HandleWebhook).Methods(http.MethodPost)
@@ -64,26 +67,171 @@ func (s *Server) setupRoutes() {
 	api.HandleFunc("/api-keys/{id:[0-9]+}", s.updateAPIKeyHandler).Methods(http.MethodPut)
 	api.HandleFunc("/api-keys/{id:[0-9]+}", s.deleteAPIKeyHandler).Methods(http.MethodDelete)
 
-	// Middleware for logging
+	// Cache management endpoints
+	api.HandleFunc("/cache/stats", s.cacheStatsHandler).Methods(http.MethodGet)
+	api.HandleFunc("/cache/clear", s.cacheClearHandler).Methods(http.MethodPost)
+
+	// Middleware for logging and timeout
 	s.router.Use(loggingMiddleware)
+	s.router.Use(timeoutMiddleware(30 * time.Second)) // 30 second timeout for API requests
 }
 
-// healthHandler returns the health status of the server
+// cacheStatsHandler returns prompt cache statistics
+func (s *Server) cacheStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.claudeClient == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"enabled": false,
+			"message": "cache not configured",
+		})
+		return
+	}
+
+	stats := s.claudeClient.CacheStats()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"enabled": s.config.CacheEnabled,
+		"stats":   stats,
+	})
+}
+
+// cacheClearHandler clears the prompt cache
+func (s *Server) cacheClearHandler(w http.ResponseWriter, r *http.Request) {
+	if s.claudeClient == nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false,
+			"message": "cache not configured",
+		})
+		return
+	}
+
+	s.claudeClient.ClearCache()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "cache cleared",
+	})
+}
+
+// healthHandler returns the health status of the server (liveness probe)
+// This should return 200 if the server is running, regardless of dependencies
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	status := struct {
 		Status string    `json:"status"`
 		Bot    string    `json:"bot"`
 		Model  string    `json:"model"`
 		Time   time.Time `json:"time"`
+		Uptime string    `json:"uptime"`
 	}{
 		Status: "healthy",
 		Bot:    s.config.BotUsername,
 		Model:  s.config.ClaudeModel,
 		Time:   time.Now(),
+		Uptime: time.Since(startTime).String(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+// readinessHandler checks if the server is ready to accept traffic (readiness probe)
+// This verifies all dependencies (database, Redis) are accessible
+func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
+	checks := make(map[string]interface{})
+	allHealthy := true
+
+	// Check database connection
+	if s.store != nil {
+		db := s.store.DB()
+		sqlDB, err := db.DB()
+		if err != nil {
+			checks["database"] = map[string]interface{}{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			}
+			allHealthy = false
+		} else if err := sqlDB.Ping(); err != nil {
+			checks["database"] = map[string]interface{}{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			}
+			allHealthy = false
+		} else {
+			stats := sqlDB.Stats()
+			checks["database"] = map[string]interface{}{
+				"status":       "healthy",
+				"open_conns":   stats.OpenConnections,
+				"in_use":       stats.InUse,
+				"idle":         stats.Idle,
+				"max_open":     stats.MaxOpenConnections,
+			}
+		}
+	} else {
+		checks["database"] = map[string]interface{}{
+			"status": "not_configured",
+		}
+	}
+
+	// Check Redis/Asynq connection
+	if s.asynqInspector != nil {
+		_, err := s.asynqInspector.GetQueueInfo(s.asynqQueue)
+		if err != nil {
+			checks["redis"] = map[string]interface{}{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			}
+			allHealthy = false
+		} else {
+			checks["redis"] = map[string]interface{}{
+				"status": "healthy",
+				"queue":  s.asynqQueue,
+			}
+		}
+	} else {
+		checks["redis"] = map[string]interface{}{
+			"status": "not_configured",
+		}
+	}
+
+	// Add cache stats if available
+	if s.claudeClient != nil {
+		cacheStats := s.claudeClient.CacheStats()
+		checks["cache"] = map[string]interface{}{
+			"status":   "healthy",
+			"size":     cacheStats.Size,
+			"max_size": cacheStats.MaxSize,
+			"hit_rate": cacheStats.HitRate,
+		}
+	}
+
+	// Add deduplicator stats if available
+	if s.deduplicator != nil {
+		dedupStats := s.deduplicator.Stats()
+		checks["deduplicator"] = map[string]interface{}{
+			"status":    "healthy",
+			"total":     dedupStats.Total,
+			"pending":   dedupStats.Pending,
+			"completed": dedupStats.Completed,
+		}
+	}
+
+	response := struct {
+		Status string                 `json:"status"`
+		Checks map[string]interface{} `json:"checks"`
+		Time   time.Time              `json:"time"`
+	}{
+		Status: "ready",
+		Checks: checks,
+		Time:   time.Now(),
+	}
+
+	if !allHealthy {
+		response.Status = "not_ready"
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // infoHandler returns basic information about the bot
@@ -121,16 +269,35 @@ func (s *Server) infoHandler(w http.ResponseWriter, r *http.Request) {
 
 // statsHandler returns current queue and rate limiter statistics
 func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
-	rateLimiterStats := s.rateLimiter.Stats()
-
 	stats := struct {
-		Queue       interface{} `json:"queue"`
-		RateLimiter interface{} `json:"rate_limiter"`
-		Uptime      string      `json:"uptime"`
+		Queue        interface{} `json:"queue"`
+		RateLimiter  interface{} `json:"rate_limiter"`
+		Cache        interface{} `json:"cache,omitempty"`
+		Deduplicator interface{} `json:"deduplicator,omitempty"`
+		Uptime       string      `json:"uptime"`
+		Config       interface{} `json:"config"`
 	}{
 		Queue:       s.queueInfo(),
-		RateLimiter: rateLimiterStats,
+		RateLimiter: s.rateLimiter.Stats(),
 		Uptime:      time.Since(startTime).String(),
+		Config: map[string]interface{}{
+			"concurrency":           s.config.AsynqConcurrency,
+			"rate_limit_max_tokens": s.config.RateLimitMaxTokens,
+			"rate_limit_refill_sec": s.config.RateLimitRefillSec,
+			"retry_max_attempts":    s.config.RetryMaxAttempts,
+			"cache_enabled":         s.config.CacheEnabled,
+			"dedup_enabled":         s.config.DedupEnabled,
+		},
+	}
+
+	// Add cache stats if available
+	if s.claudeClient != nil {
+		stats.Cache = s.claudeClient.CacheStats()
+	}
+
+	// Add deduplicator stats if available
+	if s.deduplicator != nil {
+		stats.Deduplicator = s.deduplicator.Stats()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -138,6 +305,45 @@ func (s *Server) statsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var startTime = time.Now()
+
+// timeoutMiddleware adds a timeout to requests to prevent hanging
+func timeoutMiddleware(timeout time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip timeout for webhook endpoint (handled by async processing)
+			if r.URL.Path == "/webhook" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Create a done channel
+			done := make(chan struct{})
+
+			// Create a response wrapper
+			wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+			go func() {
+				next.ServeHTTP(wrapped, r)
+				close(done)
+			}()
+
+			select {
+			case <-done:
+				// Request completed normally
+			case <-time.After(timeout):
+				// Request timed out
+				if wrapped.statusCode == http.StatusOK {
+					w.WriteHeader(http.StatusGatewayTimeout)
+					w.Write([]byte(`{"error":"request timeout"}`))
+				}
+				log.Warn().
+					Str("path", r.URL.Path).
+					Dur("timeout", timeout).
+					Msg("Request timed out")
+			}
+		})
+	}
+}
 
 // loggingMiddleware logs all incoming requests
 func loggingMiddleware(next http.Handler) http.Handler {

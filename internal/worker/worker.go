@@ -6,11 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CREVIOS/revo/internal/cache"
 	"github.com/CREVIOS/revo/internal/claude"
 	contextaware "github.com/CREVIOS/revo/internal/context"
 	"github.com/CREVIOS/revo/internal/database"
 	gh "github.com/CREVIOS/revo/internal/github"
 	"github.com/CREVIOS/revo/internal/ratelimit"
+	"github.com/CREVIOS/revo/internal/retry"
 	"github.com/CREVIOS/revo/internal/review"
 	"github.com/CREVIOS/revo/internal/tasks"
 	"github.com/CREVIOS/revo/pkg/models"
@@ -27,9 +29,28 @@ func Run(cfg *models.Config) error {
 	store := database.NewStore(db)
 
 	githubClient := gh.NewClient(cfg.GitHubAppID, cfg.GitHubPrivateKey)
-	claudeClient := claude.NewClient(cfg.ClaudePath, cfg.ClaudeModel)
+
+	// Initialize Claude client with retry and caching
+	claudeOpts := []claude.ClientOption{
+		claude.WithRetryConfig(retry.Config{
+			MaxRetries:     cfg.RetryMaxAttempts,
+			InitialDelay:   time.Duration(cfg.RetryInitialDelay) * time.Millisecond,
+			MaxDelay:       time.Duration(cfg.RetryMaxDelay) * time.Millisecond,
+			Multiplier:     2.0,
+			JitterFraction: 0.3,
+		}),
+		claude.WithCacheEnabled(cfg.CacheEnabled),
+	}
+	if cfg.CacheEnabled {
+		claudeOpts = append(claudeOpts, claude.WithPromptCache(cache.Config{
+			MaxSize: cfg.CacheMaxSize,
+			TTL:     time.Duration(cfg.CacheTTLMin) * time.Minute,
+		}))
+	}
+	claudeClient := claude.NewClient(cfg.ClaudePath, cfg.ClaudeModel, claudeOpts...)
+
 	contextAnalyzer := contextaware.NewContextAwareAnalyzer(githubClient, cfg.BotUsername)
-	rateLimiter := ratelimit.NewLimiter(2, 30*time.Second)
+	rateLimiter := ratelimit.NewLimiter(cfg.RateLimitMaxTokens, time.Duration(cfg.RateLimitRefillSec)*time.Second)
 
 	reviewer := review.NewReviewer(githubClient, claudeClient, cfg.MaxDiffSize)
 	reviewer.SetContextAnalyzer(contextAnalyzer)
@@ -91,6 +112,10 @@ func Run(cfg *models.Config) error {
 	log.Info().
 		Int("concurrency", cfg.AsynqConcurrency).
 		Str("queue", cfg.AsynqQueue).
+		Int("rate_limit_tokens", cfg.RateLimitMaxTokens).
+		Int("rate_limit_refill_sec", cfg.RateLimitRefillSec).
+		Bool("cache_enabled", cfg.CacheEnabled).
+		Int("retry_max_attempts", cfg.RetryMaxAttempts).
 		Msg("TechyBot worker starting")
 
 	return server.Run(mux)
